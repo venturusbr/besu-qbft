@@ -1,0 +1,10 @@
+version: "3"
+services:
+  node:
+    image: hyperledger/besu:23.7.3-pqc1-openjdk-17
+    container_name: "node-3"
+    volumes:
+      - .:/usr/app/
+    command: --config-file=/usr/app/config.toml
+volumes:
+  .:
