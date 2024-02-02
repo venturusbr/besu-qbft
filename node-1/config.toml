@@ -13,3 +13,7 @@ host-allowlist=["*"]
 genesis-file="/usr/app/genesis.json"
 
 min-gas-price=0
+
+# Possible values(case sensitive): Dilithium3, SPHINCSPlus, Falcon
+pqc-algorithm="Dilithium"
+pqc-metrics-file="/usr/app/elapsed_times"

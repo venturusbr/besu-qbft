@@ -5,6 +5,6 @@ services:
     container_name: "node-4"
     volumes:
       - .:/usr/app/
-    command: --config-file=/usr/app/config.toml
+    command: --config-file=/usr/app/config.toml --logging=OFF
 volumes:
   .:
