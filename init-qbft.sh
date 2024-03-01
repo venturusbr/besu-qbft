@@ -14,11 +14,11 @@ else
 
     sed -i "s#image:.*#image: $1#" docker-compose.yaml #Set image name
     #Set --pqc-algorithm-name if $2 exists and not $3
-    if [ "$2" != "" ] && [ "$3" == ""]; then
+    if [ "$2" != "" ] && [ "$3" == "" ]; then
         sed -i "s#command:.*#command: operator generate-blockchain-config --config-file=/usr/app/qbftConfig.json --to=/usr/app/networkFiles --private-key-file-name=key --pqc-algorithm-name=\"$2\"#" docker-compose.yaml
      #Set --pqc-parameter-spec if $3 exists
     elif [ "$3" != "" ]; then
-        sed -i "s#command:.*#command: operator generate-blockchain-config --config-file=/usr/app/qbftConfig.json --to=/usr/app/networkFiles --private-key-file-name=key --pqc-algorithm-name=\"$2\" --pqc-parameter-spec=\"$3#\"" docker-compose.yaml
+        sed -i "s#command:.*#command: operator generate-blockchain-config --config-file=/usr/app/qbftConfig.json --to=/usr/app/networkFiles --private-key-file-name=key --pqc-algorithm-name=\"$2\" --pqc-parameter-spec=\"$3\"#" docker-compose.yaml
     else
         sed -i "s#command:.*#command: operator generate-blockchain-config --config-file=/usr/app/qbftConfig.json --to=/usr/app/networkFiles --private-key-file-name=key#" docker-compose.yaml
     fi
