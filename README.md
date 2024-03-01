@@ -31,8 +31,8 @@
 | Index | Spec |
 |-------|------|
 |0|dilithium2|
-|1|dilithium2|
-|2|dilithium2|
+|1|dilithium3|
+|2|dilithium5|
 
 #### Falcon Parameter Specs
 | Index | Spec |
