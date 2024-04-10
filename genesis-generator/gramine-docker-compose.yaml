@@ -1,0 +1,10 @@
+version: "3"
+services:
+  reltime_node: 
+    image: 
+    container_name: "genesis-generator"
+    volumes:
+      - .:/home
+      - /var/run/aesmd/aesm.socket:/var/run/aesmd/aesm.socket
+    devices:
+      - /dev/sgx_enclave

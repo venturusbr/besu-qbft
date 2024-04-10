@@ -1,0 +1,10 @@
+version: "3"
+services:
+  node:
+    image:
+    container_name:
+    volumes:
+      - .:/home
+      - /var/run/aesmd/aesm.socket:/var/run/aesmd/aesm.socket
+    devices:
+      - /dev/sgx_enclave

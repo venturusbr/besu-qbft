@@ -6,5 +6,3 @@ services:
     volumes:
       - .:/usr/app/
     command: --config-file=/usr/app/config.toml
-volumes:
-  .:
