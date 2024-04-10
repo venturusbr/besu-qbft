@@ -35,6 +35,9 @@ else
         mkdir -p ../node-$count/data/ #Create the node directory
         cp -f networkFiles/genesis.json ../node-$count/ #Copy the generated genesis to the node directory
         cp -rf $dir/* ../node-$count/data/ #Copy all files to /data 
+        for file in *.csv; do
+            cp -f "$file" "../node-$count/"
+        done
         #Set http and p2p port in node config.toml
         sed -e "s#rpc-http-port.*#rpc-http-port=$rpc_http_port#" -e "s#p2p-port=.*#p2p-port=$p2p_port#" config.toml > ../node-$count/config.toml 
         #Set PQC algorithm name in node config.toml
