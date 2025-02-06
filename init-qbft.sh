@@ -8,6 +8,10 @@ if [ "$1" == "" ]; then
     echo "PQC(optional): dilithium or sphincsplus or falcon"
     echo "PQC Parameter Spec(optional): int number (see readme.md)"
 else
+    # Fixes User Permission Issues
+    export MY_UID=$(id -u)
+    export MY_GID=$(id -g)
+    
     #Genesis Generation
     cd genesis-generator
     rm -rf networkFiles #Delete previous directory

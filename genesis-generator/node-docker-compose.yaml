@@ -5,4 +5,5 @@ services:
     container_name:
     volumes:
       - .:/usr/app/
+    user: "${MY_UID}:${MY_GID}"
     command: --config-file=/usr/app/config.toml
