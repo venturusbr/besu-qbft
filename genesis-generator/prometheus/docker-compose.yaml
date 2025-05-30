@@ -1,0 +1,12 @@
+version: '3.7'
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    user: "${MY_UID}:${MY_GID}"
+    network_mode: host
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'

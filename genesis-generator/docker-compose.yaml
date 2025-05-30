@@ -1,7 +1,7 @@
 version: "3"
 services:
   reltime_node:
-    image: hyperledger/besu:24.1.x-poc-crypto-agility-openjdk-17
+    image: hyperledger/besu:24.1.x-pqc-openjdk-17
     container_name: "genesis-generator"
     volumes:
       - .:/usr/app/

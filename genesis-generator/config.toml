@@ -1,6 +1,7 @@
 # Valid TOML config file
 data-path="/usr/app/data" # Path
 
+tx-pool="sequenced"
 rpc-http-enabled=true
 rpc-http-api=["ETH","NET","QBFT"]
 rpc-http-cors-origins=["all"]
@@ -8,6 +9,9 @@ rpc-http-port=8545
 
 p2p-port=30303
 
+metrics-enabled=true
+metrics-host="0.0.0.0"
+metrics-port=9545
 host-allowlist=["*"]
 
 genesis-file="/usr/app/genesis.json"

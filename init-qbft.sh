@@ -30,6 +30,15 @@ else
     docker rm -f node-1 node-2 node-3 node-4 genesis-generator > /dev/null 2>&1 #Delete previous containers with the same name
     docker compose up
 
+    for FOLDER in "grafana" "prometheus"; do
+        if [ -d "$FOLDER" ]; then
+            echo "Copiando $FOLDER para o diretório raiz..."
+            cp -r "$FOLDER" ../
+        else
+            echo "Pasta $FOLDER não encontrada dentro de genesis-generator!"
+        fi
+    done
+
     #Nodes Creation
     count=1
     rpc_http_port=8545
@@ -43,13 +52,19 @@ else
             cp -f "$file" "../node-$count/"
         done
         #Set http and p2p port in node config.toml
-        sed -e "s#rpc-http-port.*#rpc-http-port=$rpc_http_port#" -e "s#p2p-port=.*#p2p-port=$p2p_port#" config.toml > ../node-$count/config.toml 
+        sed -e "s#rpc-http-port.*#rpc-http-port=$rpc_http_port#" \
+            -e "s#p2p-port=.*#p2p-port=$p2p_port#" \
+            -e "s#metrics-port=.*#metrics-port=$((9544 + count))#" config.toml > ../node-$count/config.toml 
         #Set PQC algorithm name in node config.toml
         if [ "$2" != "" ]; then 
             echo -e "\npqc-algorithm-name=\"$2\"" >> ../node-$count/config.toml 
         fi
         #Set the image name in the node docker-compose.yaml
-        sed -e "s#image:.*#image: $1#" -e "s#container_name:.*#container_name: node-$count#" node-docker-compose.yaml > ../node-$count/docker-compose.yaml
+        sed -e "s#image:.*#image: $1#" \
+            -e "s#container_name:.*#container_name: node-$count#" \
+            -e "s#PLACEHOLDER_METRICS_PORT#$((9544 + count)):$((9544 + count))#" \
+            node-docker-compose.yaml > ../node-$count/docker-compose.yaml
+
         ((count++))
         ((rpc_http_port++))
         ((p2p_port++))
@@ -69,6 +84,9 @@ else
 
     #Start QBFT Network
     docker compose up
+
+    (cd ../prometheus && docker compose up -d)
+    (cd ../grafana && docker compose up -d)
 fi
 
 

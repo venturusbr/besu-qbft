@@ -1,0 +1,13 @@
+version: "3"
+
+services:
+  grafana:
+    container_name: grafana
+    user: "${MY_UID}:${MY_GID}"
+    network_mode: host
+    image: grafana/grafana:latest
+    ports: ["3000:3000"]
+    volumes:
+      - grafana-data:/var/lib/grafana
+volumes:
+  grafana-data:
