@@ -11,7 +11,7 @@ else
     # Fixes User Permission Issues
     export MY_UID=$(id -u)
     export MY_GID=$(id -g)
-    
+
     #Genesis Generation
     cd genesis-generator
     rm -rf networkFiles #Delete previous directory
@@ -20,7 +20,7 @@ else
     #Set --pqc-algorithm-name if $2 exists and not $3
     if [ "$2" != "" ] && [ "$3" == "" ]; then
         sed -i "s#command:.*#command: operator generate-blockchain-config --config-file=/usr/app/qbftConfig.json --to=/usr/app/networkFiles --private-key-file-name=key --pqc-algorithm-name=\"$2\"#" docker-compose.yaml
-     #Set --pqc-parameter-spec if $3 exists
+    #Set --pqc-parameter-spec if $3 exists
     elif [ "$3" != "" ]; then
         sed -i "s#command:.*#command: operator generate-blockchain-config --config-file=/usr/app/qbftConfig.json --to=/usr/app/networkFiles --private-key-file-name=key --pqc-algorithm-name=\"$2\" --pqc-parameter-spec=\"$3\"#" docker-compose.yaml
     else
@@ -47,17 +47,21 @@ else
         rm -rf ../node-$count #Delete previous directories with the same name
         mkdir -p ../node-$count/data/ #Create the node directory
         cp -f networkFiles/genesis.json ../node-$count/ #Copy the generated genesis to the node directory
-        cp -rf $dir/* ../node-$count/data/ #Copy all files to /data 
+        cp -rf $dir/* ../node-$count/data/ #Copy all files to /data
         for file in *.csv; do
             cp -f "$file" "../node-$count/"
         done
         #Set http and p2p port in node config.toml
         sed -e "s#rpc-http-port.*#rpc-http-port=$rpc_http_port#" \
             -e "s#p2p-port=.*#p2p-port=$p2p_port#" \
-            -e "s#metrics-port=.*#metrics-port=$((9544 + count))#" config.toml > ../node-$count/config.toml 
+            -e "s#metrics-port=.*#metrics-port=$((9544 + count))#" config.toml > ../node-$count/config.toml
         #Set PQC algorithm name in node config.toml
-        if [ "$2" != "" ]; then 
-            echo -e "\npqc-algorithm-name=\"$2\"" >> ../node-$count/config.toml 
+        if [ "$2" != "" ]; then
+            echo -e "\npqc-algorithm-name=\"$2\"" >> ../node-$count/config.toml
+        fi
+        #Set DSA algorithm name in node config.toml
+        if [ "$4" != "" ]; then
+            echo -e "\ndsa-algorithm=\"$4\"" >> ../node-$count/config.toml
         fi
         #Set the image name in the node docker-compose.yaml
         sed -e "s#image:.*#image: $1#" \
@@ -88,8 +92,3 @@ else
     (cd ../prometheus && docker compose up -d)
     (cd ../grafana && docker compose up -d)
 fi
-
-
-
-
-
