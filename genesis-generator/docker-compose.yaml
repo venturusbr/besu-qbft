@@ -1,9 +1,9 @@
 version: "3"
 services:
   reltime_node:
-    image: hyperledger/besu:24.1.x-pqc-openjdk-17
+    image: hyperledger/besu:26.1.0-pqc
     container_name: "genesis-generator"
     volumes:
       - .:/usr/app/
     user: "${MY_UID}:${MY_GID}"
-    command: operator generate-blockchain-config --config-file=/usr/app/qbftConfig.json --to=/usr/app/networkFiles --private-key-file-name=key --pqc-algorithm-name="dilithium"
+    command: operator generate-blockchain-config --config-file=/usr/app/qbftConfig.json --to=/usr/app/networkFiles --private-key-file-name=key --pqc-algorithm-name="dilithium" --pqc-parameter-spec="0"

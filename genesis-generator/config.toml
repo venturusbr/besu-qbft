@@ -2,6 +2,14 @@
 data-path="/usr/app/data" # Path
 
 tx-pool="sequenced"
+
+# if using layered tx pool, set 2x txAmount in flex-wallet benchmark
+# tx-pool-max-future-by-sender="250"
+
+# set 4x txAmount in flex-wallet benchmark
+tx-pool-max-size="4096"
+tx-pool-limit-by-account-percentage=1.0
+
 rpc-http-enabled=true
 rpc-http-api=["ETH","NET","QBFT"]
 rpc-http-cors-origins=["all"]
