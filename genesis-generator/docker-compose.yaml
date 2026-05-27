@@ -1,4 +1,3 @@
-version: "3"
 services:
   reltime_node:
     image: hyperledger/besu:26.1.0-pqc

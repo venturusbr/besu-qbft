@@ -1,7 +1,6 @@
-version: "3"
 services:
-  reltime_node: 
-    image: 
+  reltime_node:
+    image:
     container_name: "genesis-generator"
     volumes:
       - .:/home
