@@ -1,7 +1,6 @@
 ## Private network using QBFT on Hyperledger Besu
 
 **Script for creating a QBFT network on Hyperledger Besu using Docker.**
-**Includes options for using post quantum cryptography (Dilithium, Sphincs and Falcon).**
 
 
 ## Prerequisites
@@ -12,64 +11,37 @@
 
 ## Usage
 
-- Clone repo
-- `cd besu-qbft-private-network`
 - `chmod +x init-qbft.sh`
 - You need to know the name of the besu image. Replace ***hyperledger/besu*** with your image name
 - `./init-qbft.sh hyperledger/besu`
-- For images with PQC support, made by Venturus:
-- `./init-qbft.sh hyperledger/besu:pqc dilithium`
-- Use your image name instead of hyperledger/besu:pqc.
-- It's possible to select pqc parameter by index.
-- `./init-qbft.sh hyperledger/besu:pqc dilithium 1`
-- replace `1` with the desired parameter index. For more details, see the list bellow.
+- To specify a DSA algorithm (optional), e.g. SECP256K1-MLDSA44:
+- `./init-qbft.sh hyperledger/besu SECP256K1-MLDSA44`
 
 
-## Parameter Specs
+## Verifying the network
 
-#### Dilithium Parameter Specs
-| Index | Spec |
-|-------|------|
-|0|dilithium2|
-|1|dilithium3|
-|2|dilithium5|
+Once the network is running, confirm all four nodes are up and their RPC ports are published to the host:
 
-#### Falcon Parameter Specs
-| Index | Spec |
-|-------|------|
-|0|falcon_512|
-|1|falcon_1024|
+```sh
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+```
 
-#### Sphincs Plus Parameter Specs
-| Index | Spec |
-|-------|------|
-|0|sha2_128f|
-|1|sha2_128f_simple|
-|2|sha2_128s|
-|3|sha2_128s_simple|
-|4|sha2_192f|
-|5|sha2_192f_simple|
-|6|sha2_192s|
-|7|sha2_192s_simple|
-|8|sha2_256f|
-|9|sha2_256f_simple|
-|10|sha2_256s|
-|11|sha2_256s_simple|
-|12|shake_128f|
-|13|shake_128f_simple|
-|14|shake_128s|
-|15|shake_128s_simple|
-|16|shake_192f|
-|17|shake_192f_simple|
-|18|shake_192s|
-|19|shake_192s_simple|
-|20|shake_256f|
-|21|shake_256f_simple|
-|22|shake_256s|
-|23|shake_256s_simple|
+Expected output shows `node-1` through `node-4` with `0.0.0.0:8545->8545/tcp` through `0.0.0.0:8548->8548/tcp`.
 
 
+## Stopping the network
 
+Pressing **Ctrl+C** in the terminal where `init-qbft.sh` is running is the quickest way to stop the network.
 
+To stop and remove the containers explicitly:
 
+```sh
+docker stop node-1 node-2 node-3 node-4
+docker rm node-1 node-2 node-3 node-4
+```
 
+Or in one command:
+
+```sh
+docker rm -f node-1 node-2 node-3 node-4
+```

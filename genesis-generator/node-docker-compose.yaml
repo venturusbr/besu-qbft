@@ -6,4 +6,6 @@ services:
     volumes:
       - .:/usr/app/
     user: "${MY_UID}:${MY_GID}"
+    ports:
+      - "PLACEHOLDER_RPC_PORT"
     command: --config-file=/usr/app/config.toml
