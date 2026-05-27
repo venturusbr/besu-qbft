@@ -3,10 +3,8 @@
 
 if [ "$1" == "" ]; then
     echo ""
-    echo "Usage: $0 besu-image-name [dsa-algorithm]"
+    echo "Usage: $0 besu-image-name"
     echo "Example: $0 hyperledger/besu"
-    echo "DSA Algorithm (optional): SECP256K1-MLDSA44"
-    echo "Example: $0 hyperledger/besu SECP256K1-MLDSA44"
     echo ""
 else
     # Fixes User Permission Issues
@@ -48,10 +46,6 @@ else
         sed -e "s#rpc-http-port.*#rpc-http-port=$rpc_http_port#" \
             -e "s#p2p-port=.*#p2p-port=$p2p_port#" \
             -e "s#metrics-port=.*#metrics-port=$((9544 + count))#" config.toml > ../node-$count/config.toml
-        #Set DSA algorithm name in node config.toml
-        if [ "$2" != "" ]; then
-            echo -e "\ndsa-algorithm=\"$2\"" >> ../node-$count/config.toml
-        fi
         #Set the image name in the node docker-compose.yaml
         sed -e "s#image:.*#image: $1#" \
             -e "s#container_name:.*#container_name: node-$count#" \
