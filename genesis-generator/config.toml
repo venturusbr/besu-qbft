@@ -11,7 +11,7 @@ tx-pool-max-size="10000"
 tx-pool-limit-by-account-percentage=1.0
 
 rpc-http-enabled=true
-rpc-http-api=["ETH","NET","QBFT"]
+rpc-http-api=["ETH","NET","QBFT","VNT"]
 rpc-http-cors-origins=["all"]
 rpc-http-port=8545
 
@@ -27,4 +27,3 @@ host-allowlist=["*"]
 genesis-file="/usr/app/genesis.json"
 
 min-gas-price=0
-
