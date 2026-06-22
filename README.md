@@ -40,12 +40,12 @@ docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 Expected output shows `node-1` through `node-4` with `0.0.0.0:8545->8545/tcp` through `0.0.0.0:8548->8548/tcp`.
 
 ## Some JSON-RPC API endpoints
-### Querying the supported DSAs
+### Querying the accounts supported DSAs
 
-Use the Besu JSON-RPC API to verify which Digital Signature Algorithms are supported by the nodes:
+Use the Besu JSON-RPC API to verify which Digital Signature Algorithms are supported by the accounts:
 
 ```bash
-curl -X POST --data '{"jsonrpc":"2.0","method":"vnt_getSupportedDSAs","params":[],"id":1}' http://localhost:8545
+curl -X POST --data '{"jsonrpc":"2.0","method":"vnt_getAccountsSupportedDSAs","params":[],"id":1}' http://localhost:8545
 ```
 
 The expected response should contain a `result` that matches the list of supported DSAs contained in
