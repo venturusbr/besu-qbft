@@ -21,14 +21,14 @@ else
     docker rm -f node-1 node-2 node-3 node-4 genesis-generator > /dev/null 2>&1 #Delete previous containers with the same name
     docker compose up
 
-    for FOLDER in "grafana" "prometheus"; do
-        if [ -d "$FOLDER" ]; then
-            echo "Copying $FOLDER to the root directory..."
-            cp -r "$FOLDER" ../
-        else
-            echo "$FOLDER folder not found inside genesis-generator!"
-        fi
-    done
+    # for FOLDER in "grafana" "prometheus"; do
+    #     if [ -d "$FOLDER" ]; then
+    #         echo "Copying $FOLDER to the root directory..."
+    #         cp -r "$FOLDER" ../
+    #     else
+    #         echo "$FOLDER folder not found inside genesis-generator!"
+    #     fi
+    # done
 
     #Nodes Creation
     count=1
@@ -73,6 +73,6 @@ else
     #Start QBFT Network
     docker compose up
 
-    (cd ../prometheus && docker compose up -d)
-    (cd ../grafana && docker compose up -d)
+    # (cd ../prometheus && docker compose up -d)
+    # (cd ../grafana && docker compose up -d)
 fi

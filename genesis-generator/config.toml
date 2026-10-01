@@ -1,5 +1,6 @@
 # Valid TOML config file
 data-path="/usr/app/data" # Path
+# logging="DEBUG"
 
 tx-pool="sequenced"
 
@@ -15,7 +16,7 @@ rpc-http-api=["ETH","NET","QBFT","VNT"]
 rpc-http-cors-origins=["all"]
 rpc-http-port=8545
 
-accounts-supported-dsas=["SECP256K1","SECP256K1-MLDSA44"]
+accounts-supported-dsas=["SECP256K1","SECP256K1-MLDSA44", "SECP256K1-FALCON512"]
 
 p2p-port=30303
 
