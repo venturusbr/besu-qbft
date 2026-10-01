@@ -28,6 +28,14 @@ The script streams the logs of all four nodes directly in the terminal — no se
 - You need to know the name of the besu image. Replace ***hyperledger/besu*** with your image name
 - `./init-qbft.sh hyperledger/besu`
 
+### Node key algorithm (`--node-dsa`)
+
+By default the nodes use `SECP256K1` keys. To start a network with hybrid node keys (ECDSA ‖ ML-DSA-44), pass `--node-dsa`:
+
+- `./init-qbft.sh hyperledger/besu:26.1.0-pqc --node-dsa=SECP256K1-MLDSA44`
+
+The selected DSA is used to generate the node keys and the genesis validators, and it is written as `node-dsa` in every node's `config.toml`. All nodes in a network must use the same DSA. The enode of each node contains its full public key: 128 hex characters for `SECP256K1`, and 2752 hex characters (ECDSA public key followed by the ML-DSA-44 public key) for `SECP256K1-MLDSA44`.
+
 
 ## Verifying the network
 
