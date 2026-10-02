@@ -2,6 +2,10 @@
 data-path="/usr/app/data" # Path
 # logging="DEBUG"
 
+# Node key algorithm (set by init-qbft.sh --node-dsa); must be the same on every node
+node-dsa="SECP256K1"
+node-private-key-file="/usr/app/data/key"
+
 tx-pool="sequenced"
 
 # if using layered tx pool, set 2x txAmount in flex-wallet benchmark
@@ -18,6 +22,7 @@ rpc-http-port=8545
 
 accounts-supported-dsas=["SECP256K1","SECP256K1-MLDSA44", "SECP256K1-FALCON512"]
 
+p2p-host="172.20.0.2"
 p2p-port=30303
 
 metrics-enabled=true
