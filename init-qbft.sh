@@ -4,9 +4,11 @@
 usage() {
     echo ""
     echo "Usage: $0 besu-image-name [--node-dsa=<DSA>]"
-    echo "  --node-dsa   Node key algorithm: SECP256K1 (default) or SECP256K1-MLDSA44"
+    echo "  --node-dsa   Node key algorithm: SECP256K1 (default), SECP256R1, SECP256K1-MLDSA44 or SECP256K1-FALCON512"
     echo "Example: $0 hyperledger/besu"
     echo "Example: $0 hyperledger/besu:26.1.0-pqc --node-dsa=SECP256K1-MLDSA44"
+    echo "Example: $0 hyperledger/besu:26.1.0-pqc --node-dsa=SECP256K1-FALCON512"
+    echo "Example: $0 hyperledger/besu:26.1.0-pqc --node-dsa=SECP256R1"
     echo ""
 }
 
@@ -23,17 +25,24 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-#Expected node public key length (hex chars) for each supported DSA
+#Expected node public key length (hex chars) and network elliptic curve for each supported DSA.
+#Besu refuses to start when the node DSA (or a hybrid's classical half) signs on a curve other
+#than the genesis ecCurve, so the curve is derived from the node DSA.
+#Falcon signatures have no fixed length, which discovery (discv4) does not support, so Falcon
+#networks connect their nodes through static nodes instead.
+STATIC_NODES=false
 case "$NODE_DSA" in
-    SECP256K1) PUBKEY_HEX_LENGTH=128 ;;          # 64 bytes
-    SECP256K1-MLDSA44) PUBKEY_HEX_LENGTH=2752 ;; # 64 + 1312 bytes
+    SECP256K1) PUBKEY_HEX_LENGTH=128; EC_CURVE=secp256k1 ;;          # 64 bytes
+    SECP256R1) PUBKEY_HEX_LENGTH=128; EC_CURVE=secp256r1 ;;          # 64 bytes
+    SECP256K1-MLDSA44) PUBKEY_HEX_LENGTH=2752; EC_CURVE=secp256k1 ;; # 64 + 1312 bytes
+    SECP256K1-FALCON512) PUBKEY_HEX_LENGTH=1920; EC_CURVE=secp256k1; STATIC_NODES=true ;; # 64 + 896 bytes
     *) echo "Unsupported --node-dsa: $NODE_DSA"; usage; exit 1 ;;
 esac
 
 if [ "$IMAGE" == "" ]; then
     usage
 else
-    echo "Using image $IMAGE with node DSA $NODE_DSA"
+    echo "Using image $IMAGE with node DSA $NODE_DSA (ecCurve $EC_CURVE)"
 
     # Fixes User Permission Issues
     export MY_UID=$(id -u)
@@ -43,8 +52,12 @@ else
     cd genesis-generator
     rm -rf networkFiles #Delete previous directory
 
+    #Set the genesis ecCurve to the node DSA curve in a generated copy of qbftConfig.json
+    sed -e '/"ecCurve"/d' \
+        -e "s#^\( *\)\"chainId\":.*#&\n\1\"ecCurve\": \"$EC_CURVE\",#" qbftConfig.json > qbftConfig.generated.json
+
     sed -i "s#image:.*#image: $IMAGE#" docker-compose.yaml #Set image name
-    sed -i "s#command:.*#command: operator generate-blockchain-config --config-file=/usr/app/qbftConfig.json --to=/usr/app/networkFiles --private-key-file-name=key --node-dsa=$NODE_DSA#" docker-compose.yaml
+    sed -i "s#command:.*#command: operator generate-blockchain-config --config-file=/usr/app/qbftConfig.generated.json --to=/usr/app/networkFiles --private-key-file-name=key --node-dsa=$NODE_DSA#" docker-compose.yaml
 
     docker rm -f node-1 node-2 node-3 node-4 genesis-generator > /dev/null 2>&1 #Delete previous containers with the same name
     docker compose up
@@ -88,21 +101,36 @@ else
         ((p2p_port++))
     done
 
-    #Get enode: the node ID is the full public key of the active DSA
-    #(ECDSA only for SECP256K1, ECDSA || ML-DSA-44 for SECP256K1-MLDSA44)
-    cd ../node-1/data
-    enode=$(tr -d '[:space:]' < key.pub)
-    enode=${enode#0x}
-    if [ ${#enode} -ne $PUBKEY_HEX_LENGTH ]; then
-        echo "Invalid node-1 public key for $NODE_DSA: expected $PUBKEY_HEX_LENGTH hex chars, got ${#enode}"
-        exit 1
-    fi
-
-    #Set bootnodes in nodes 2, 3 and 4. (localhost:127.0.0.1 - P2P Port node-1:30303)
-    cd ../../
-    for node in {2..4}; do
-        echo -e "\n\nbootnodes=[\"enode://$enode@172.20.0.2:30303\"]" >> node-$node/config.toml
+    #Get enodes: the node ID is the full public key of the active DSA
+    #(ECDSA only for SECP256K1/SECP256R1, ECDSA || ML-DSA-44 for SECP256K1-MLDSA44,
+    #ECDSA || Falcon-512 for SECP256K1-FALCON512)
+    cd ..
+    enodes=()
+    for node in {1..4}; do
+        pubkey=$(tr -d '[:space:]' < node-$node/data/key.pub)
+        pubkey=${pubkey#0x}
+        if [ ${#pubkey} -ne $PUBKEY_HEX_LENGTH ]; then
+            echo "Invalid node-$node public key for $NODE_DSA: expected $PUBKEY_HEX_LENGTH hex chars, got ${#pubkey}"
+            exit 1
+        fi
+        enodes+=("\"enode://$pubkey@172.20.0.$((node + 1)):$((30302 + node))\"")
     done
+
+    if [ "$STATIC_NODES" == "true" ]; then
+        #Discovery (discv4) cannot decode packets signed with variable-length signatures,
+        #so the nodes connect directly to each other through a static nodes file instead
+        echo "Discovery disabled for $NODE_DSA: connecting the nodes through static-nodes.json"
+        static_nodes=$(IFS=,; echo "[${enodes[*]}]")
+        for node in {1..4}; do
+            echo "$static_nodes" > node-$node/static-nodes.json
+            echo -e "\n\ndiscovery-enabled=false\nstatic-nodes-file=\"/usr/app/static-nodes.json\"" >> node-$node/config.toml
+        done
+    else
+        #Set bootnodes in nodes 2, 3 and 4. (localhost:127.0.0.1 - P2P Port node-1:30303)
+        for node in {2..4}; do
+            echo -e "\n\nbootnodes=[${enodes[0]}]" >> node-$node/config.toml
+        done
+    fi
 
     docker rm node-1 node-2 node-3 node-4 genesis-generator > /dev/null 2>&1 #To avoid errors, delete previous containers with the same name
 
