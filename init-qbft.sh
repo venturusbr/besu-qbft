@@ -56,8 +56,10 @@ else
     sed -e '/"ecCurve"/d' \
         -e "s#^\( *\)\"chainId\":.*#&\n\1\"ecCurve\": \"$EC_CURVE\",#" qbftConfig.json > qbftConfig.generated.json
 
-    sed -i "s#image:.*#image: $IMAGE#" docker-compose.yaml #Set image name
-    sed -i "s#command:.*#command: operator generate-blockchain-config --config-file=/usr/app/qbftConfig.generated.json --to=/usr/app/networkFiles --private-key-file-name=key --node-dsa=$NODE_DSA#" docker-compose.yaml
+    #Image, config file and node DSA for the genesis generator's docker-compose.yaml
+    export BESU_IMAGE="$IMAGE"
+    export QBFT_CONFIG_FILE="qbftConfig.generated.json"
+    export NODE_DSA
 
     docker rm -f node-1 node-2 node-3 node-4 genesis-generator > /dev/null 2>&1 #Delete previous containers with the same name
     docker compose up
