@@ -4,12 +4,19 @@
 usage() {
     echo ""
     echo "Usage: $0 besu-image-name [--node-dsa=<DSA>]"
-    echo "  --node-dsa   Node key algorithm: SECP256K1 (default), SECP256R1, SECP256K1-MLDSA44 or SECP256K1-FALCON512"
+    echo "  --node-dsa   Node key algorithm: SECP256K1 (default), SECP256R1, SECP256K1-MLDSA44 or"
+    echo "               SECP256K1-FALCON512 (experimental, see README)"
     echo "Example: $0 hyperledger/besu"
     echo "Example: $0 hyperledger/besu:26.1.0-pqc --node-dsa=SECP256K1-MLDSA44"
     echo "Example: $0 hyperledger/besu:26.1.0-pqc --node-dsa=SECP256K1-FALCON512"
     echo "Example: $0 hyperledger/besu:26.1.0-pqc --node-dsa=SECP256R1"
+    echo "The number of nodes is blockchain.nodes.count in genesis-generator/qbftConfig.json."
     echo ""
+}
+
+#Delete previous node containers (node-1, node-2, ...) whatever their number
+remove_containers() {
+    docker rm -f genesis-generator $(docker ps -aq --filter "name=^node-[0-9]+$") > /dev/null 2>&1
 }
 
 IMAGE=""
@@ -28,8 +35,9 @@ done
 #Expected node public key length (hex chars) and network elliptic curve for each supported DSA.
 #Besu refuses to start when the node DSA (or a hybrid's classical half) signs on a curve other
 #than the genesis ecCurve, so the curve is derived from the node DSA.
-#Falcon signatures have no fixed length, which discovery (discv4) does not support, so Falcon
-#networks connect their nodes through static nodes instead.
+#Falcon is not supported by Besu's p2p layer yet: discovery (discv4) cannot decode its
+#variable-length signatures and the node record (ENR) has no field for its key. Falcon networks
+#therefore run without discovery, connecting their nodes through static nodes instead.
 STATIC_NODES=false
 case "$NODE_DSA" in
     SECP256K1) PUBKEY_HEX_LENGTH=128; EC_CURVE=secp256k1 ;;          # 64 bytes
@@ -43,6 +51,10 @@ if [ "$IMAGE" == "" ]; then
     usage
 else
     echo "Using image $IMAGE with node DSA $NODE_DSA (ecCurve $EC_CURVE)"
+    if [ "$STATIC_NODES" == "true" ]; then
+        echo "WARNING: --node-dsa $NODE_DSA is experimental: Besu's p2p layer does not support it yet,"
+        echo "so the network runs without discovery, through static nodes (see README)."
+    fi
 
     # Fixes User Permission Issues
     export MY_UID=$(id -u)
@@ -61,8 +73,13 @@ else
     export QBFT_CONFIG_FILE="qbftConfig.generated.json"
     export NODE_DSA
 
-    docker rm -f node-1 node-2 node-3 node-4 genesis-generator > /dev/null 2>&1 #Delete previous containers with the same name
+    remove_containers
     docker compose up
+
+    if [ ! -f networkFiles/genesis.json ]; then
+        echo "Genesis generation failed: see the genesis-generator output above"
+        exit 1
+    fi
 
     # for FOLDER in "grafana" "prometheus"; do
     #     if [ -d "$FOLDER" ]; then
@@ -73,12 +90,12 @@ else
     #     fi
     # done
 
-    #Nodes Creation
+    #Nodes Creation: one node per generated key (blockchain.nodes.count in qbftConfig.json)
+    rm -rf ../node-[0-9]* #Delete previous node directories, which may be more than this network's
     count=1
     rpc_http_port=8545
     p2p_port=30303
     for dir in networkFiles/keys/*; do
-        rm -rf ../node-$count #Delete previous directories with the same name
         mkdir -p ../node-$count/data/ #Create the node directory
         cp -f networkFiles/genesis.json ../node-$count/ #Copy the generated genesis to the node directory
         cp -rf $dir/* ../node-$count/data/ #Copy all files to /data
@@ -102,13 +119,15 @@ else
         ((rpc_http_port++))
         ((p2p_port++))
     done
+    NODE_COUNT=$((count - 1))
+    echo "Created $NODE_COUNT nodes"
 
     #Get enodes: the node ID is the full public key of the active DSA
     #(ECDSA only for SECP256K1/SECP256R1, ECDSA || ML-DSA-44 for SECP256K1-MLDSA44,
     #ECDSA || Falcon-512 for SECP256K1-FALCON512)
     cd ..
     enodes=()
-    for node in {1..4}; do
+    for ((node = 1; node <= NODE_COUNT; node++)); do
         pubkey=$(tr -d '[:space:]' < node-$node/data/key.pub)
         pubkey=${pubkey#0x}
         if [ ${#pubkey} -ne $PUBKEY_HEX_LENGTH ]; then
@@ -119,25 +138,47 @@ else
     done
 
     if [ "$STATIC_NODES" == "true" ]; then
-        #Discovery (discv4) cannot decode packets signed with variable-length signatures,
+        #Discovery is disabled, which also keeps the node record (ENR) out of the way,
         #so the nodes connect directly to each other through a static nodes file instead
         echo "Discovery disabled for $NODE_DSA: connecting the nodes through static-nodes.json"
         static_nodes=$(IFS=,; echo "[${enodes[*]}]")
-        for node in {1..4}; do
+        for ((node = 1; node <= NODE_COUNT; node++)); do
             echo "$static_nodes" > node-$node/static-nodes.json
             echo -e "\n\ndiscovery-enabled=false\nstatic-nodes-file=\"/usr/app/static-nodes.json\"" >> node-$node/config.toml
         done
     else
-        #Set bootnodes in nodes 2, 3 and 4. (localhost:127.0.0.1 - P2P Port node-1:30303)
-        for node in {2..4}; do
+        #Set node-1 as the bootnode of every other node (P2P Port node-1:30303)
+        for ((node = 2; node <= NODE_COUNT; node++)); do
             echo -e "\n\nbootnodes=[${enodes[0]}]" >> node-$node/config.toml
         done
     fi
 
-    docker rm node-1 node-2 node-3 node-4 genesis-generator > /dev/null 2>&1 #To avoid errors, delete previous containers with the same name
+    #Compose file for this network's nodes (node-N at 172.20.0.(N+1))
+    {
+        echo "# Generated by init-qbft.sh for $NODE_COUNT nodes"
+        echo "networks:"
+        echo "  besu:"
+        echo "    driver: bridge"
+        echo "    ipam:"
+        echo "      config:"
+        echo "        - subnet: 172.20.0.0/24"
+        echo ""
+        echo "services:"
+        for ((node = 1; node <= NODE_COUNT; node++)); do
+            echo "  node-$node:"
+            echo "    extends:"
+            echo "      file: \"./node-$node/docker-compose.yaml\""
+            echo "      service: node"
+            echo "    networks:"
+            echo "      besu:"
+            echo "        ipv4_address: 172.20.0.$((node + 1))"
+        done
+    } > docker-compose.generated.yaml
+
+    remove_containers #To avoid errors, delete previous containers with the same name
 
     #Start QBFT Network
-    docker compose up
+    docker compose -f docker-compose.generated.yaml up
 
     # (cd ../prometheus && docker compose up -d)
     # (cd ../grafana && docker compose up -d)
