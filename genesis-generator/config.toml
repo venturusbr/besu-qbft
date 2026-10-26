@@ -20,7 +20,7 @@ rpc-http-api=["ETH","NET","QBFT","VNT"]
 rpc-http-cors-origins=["all"]
 rpc-http-port=8545
 
-accounts-supported-dsas=["SECP256K1","SECP256K1-MLDSA44", "SECP256K1-FALCON512"]
+accounts-supported-dsas=["SECP256K1", "SECP256R1", "SECP256K1-MLDSA44", "SECP256K1-FALCON512"]
 
 p2p-host="172.20.0.2"
 p2p-port=30303

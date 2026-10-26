@@ -1,8 +1,8 @@
 ## Private network using QBFT on Hyperledger Besu
 
-**Script for creating a QBFT consensus network of four nodes using the informed Hyperledger Besu Docker image.**
+**Script for creating a QBFT consensus network (four nodes by default) using the informed Hyperledger Besu Docker image.**
 
-The nodes expose their JSON-RPC endpoints on:
+The nodes expose their JSON-RPC endpoints on consecutive ports starting at 8545:
 
 | Node | JSON-RPC URL |
 |---|---|
@@ -10,8 +10,9 @@ The nodes expose their JSON-RPC endpoints on:
 | Node 2 | http://localhost:8546 |
 | Node 3 | http://localhost:8547 |
 | Node 4 | http://localhost:8548 |
+| Node N | http://localhost:(8544 + N) |
 
-The script streams the logs of all four nodes directly in the terminal — no separate `docker logs` command needed.
+The script streams the logs of all nodes directly in the terminal — no separate `docker logs` command needed.
 
 
 
@@ -28,24 +29,50 @@ The script streams the logs of all four nodes directly in the terminal — no se
 - You need to know the name of the besu image. Replace ***hyperledger/besu*** with your image name
 - `./init-qbft.sh hyperledger/besu`
 
+### Number of nodes
+
+The network has one validator node per key generated from `blockchain.nodes.count` in [genesis-generator/qbftConfig.json](genesis-generator/qbftConfig.json) (4 by default). Node N gets IP `172.20.0.(N+1)`, P2P port `30302 + N`, JSON-RPC port `8544 + N` and metrics port `9544 + N`. The script generates `docker-compose.generated.yaml` (gitignored) with one service per node and starts the network from it.
+
 ### Node key algorithm (`--node-dsa`)
 
-By default the nodes use `SECP256K1` keys. To start a network with hybrid node keys (ECDSA ‖ ML-DSA-44), pass `--node-dsa`:
+By default the nodes use `SECP256K1` keys. To start a network with another node key algorithm, pass `--node-dsa`:
 
-- `./init-qbft.sh hyperledger/besu:26.1.0-pqc --node-dsa=SECP256K1-MLDSA44`
+- `./init-qbft.sh hyperledger/besu:26.1.0-pqc --node-dsa=SECP256R1` (ECDSA on the secp256r1 curve)
+- `./init-qbft.sh hyperledger/besu:26.1.0-pqc --node-dsa=SECP256K1-MLDSA44` (hybrid ECDSA ‖ ML-DSA-44)
+- `./init-qbft.sh hyperledger/besu:26.1.0-pqc --node-dsa=SECP256K1-FALCON512` (hybrid ECDSA ‖ Falcon-512, **experimental**, see below)
 
-The selected DSA is used to generate the node keys and the genesis validators, and it is written as `node-dsa` in every node's `config.toml`. All nodes in a network must use the same DSA. The enode of each node contains its full public key: 128 hex characters for `SECP256K1`, and 2752 hex characters (ECDSA public key followed by the ML-DSA-44 public key) for `SECP256K1-MLDSA44`.
+The selected DSA is used to generate the node keys and the genesis validators, and it is written as `node-dsa` in every node's `config.toml`. All nodes in a network must use the same DSA. The enode of each node contains its full public key:
+
+| `--node-dsa` | Public key (hex chars) | Genesis `ecCurve` |
+|---|---|---|
+| `SECP256K1` | 128 | `secp256k1` |
+| `SECP256R1` | 128 | `secp256r1` |
+| `SECP256K1-MLDSA44` | 2752 (ECDSA ‖ ML-DSA-44) | `secp256k1` |
+| `SECP256K1-FALCON512` *(experimental)* | 1920 (ECDSA ‖ Falcon-512) | `secp256k1` |
+
+Besu refuses to start when `--node-dsa` (or the classical half of a hybrid) signs on a different curve than the genesis `ecCurve`. The script therefore writes the matching `ecCurve` into `genesis-generator/qbftConfig.generated.json`, a copy of `qbftConfig.json` used to generate the genesis, so `qbftConfig.json` itself is left untouched. On a `secp256r1` network, legacy (non-flexible) transactions are signed on secp256r1 as well.
+
+#### `SECP256K1-FALCON512` is experimental
+
+Besu's p2p layer does not support Falcon yet:
+
+- Peer discovery (discv4) cannot decode packets with variable-length signatures such as Falcon-512's, and fails with a `NullPointerException` in `Packet.publicKeyIndex`.
+- The discovery node record (ENR) has no field for a Falcon key.
+
+With `SECP256K1-FALCON512` the script therefore disables discovery (`discovery-enabled=false`) and connects the nodes through a `static-nodes.json` file in every node directory instead of bootnodes. This only works because disabling discovery also keeps the ENR out of the way. QBFT consensus itself runs normally over these static connections. Treat Falcon node keys as experimental until Besu's discovery and ENR support them, and don't enable discovery on these networks.
+
+On `SECP256R1` networks Besu logs `Missing PKEY_SECP256K1 field` when writing the discovery node record. This is harmless and does not affect consensus.
 
 
 ## Verifying the network
 
-Once the network is running, confirm all four nodes are up and their RPC ports are published to the host:
+Once the network is running, confirm all nodes are up and their RPC ports are published to the host:
 
 ```sh
 docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 ```
 
-Expected output shows `node-1` through `node-4` with `0.0.0.0:8545->8545/tcp` through `0.0.0.0:8548->8548/tcp`.
+With the default four nodes, the expected output shows `node-1` through `node-4` with `0.0.0.0:8545->8545/tcp` through `0.0.0.0:8548->8548/tcp`.
 
 ## Some JSON-RPC API endpoints
 ### Querying the accounts supported DSAs
@@ -89,14 +116,13 @@ Returns the full details of a block given its number. The second parameter `true
 
 Pressing **Ctrl+C** in the terminal where `init-qbft.sh` is running is the quickest way to stop the network.
 
-To stop and remove the containers explicitly:
+To stop and remove the containers explicitly, whatever the number of nodes:
 
 ```sh
-docker stop node-1 node-2 node-3 node-4
-docker rm node-1 node-2 node-3 node-4
+docker compose -f docker-compose.generated.yaml down
 ```
 
-Or in one command:
+Or, with the default four nodes:
 
 ```sh
 docker rm -f node-1 node-2 node-3 node-4

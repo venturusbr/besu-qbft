@@ -1,8 +1,9 @@
+# Variables are set by init-qbft.sh; the defaults allow running `docker compose up` here directly
 services:
   reltime_node:
-    image: hyperledger/besu:26.1.0-pqc
+    image: ${BESU_IMAGE:-hyperledger/besu:26.1.0-pqc}
     container_name: "genesis-generator"
     volumes:
       - .:/usr/app/
     user: "${MY_UID}:${MY_GID}"
-    command: operator generate-blockchain-config --config-file=/usr/app/qbftConfig.json --to=/usr/app/networkFiles --private-key-file-name=key
+    command: operator generate-blockchain-config --config-file=/usr/app/${QBFT_CONFIG_FILE:-qbftConfig.json} --to=/usr/app/networkFiles --private-key-file-name=key --node-dsa=${NODE_DSA:-SECP256K1}

@@ -5,3 +5,5 @@ grafana/
 genesis-generator/*.csv
 genesis-generator/networkFiles/
 data/*
+genesis-generator/qbftConfig.generated.json
+docker-compose.generated.yaml
