@@ -19,8 +19,9 @@ The script streams the logs of all nodes directly in the terminal — no separat
 
 ## Prerequisites
 
-- `docker-compose`
+- Docker with Docker Compose v2.20 or later (`docker compose`)
 - `Besu Image`
+- `curl` and access to grafana.com, to download the Besu Full dashboard (optional, see [Monitoring](#monitoring-prometheus-and-grafana))
 
 
 ## Usage
@@ -92,7 +93,46 @@ Once the network is running, confirm all nodes are up and their RPC ports are pu
 docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 ```
 
-With the default four nodes, the expected output shows `node-1` through `node-4` with `0.0.0.0:8545->8545/tcp` through `0.0.0.0:8548->8548/tcp`.
+With the default four nodes, the expected output shows `node-1` through `node-4` with `0.0.0.0:8545->8545/tcp` through `0.0.0.0:8548->8548/tcp`, plus `qbft-prometheus` (`0.0.0.0:9090->9090/tcp`) and `qbft-grafana` (`0.0.0.0:3000->3000/tcp`).
+
+## Monitoring (Prometheus and Grafana)
+
+`init-qbft.sh` (also with `--resume` and `--terminals`) starts Prometheus and Grafana along with the nodes, as the services `prometheus` and `grafana` (containers `qbft-prometheus` and `qbft-grafana`) of `docker-compose.generated.yaml`. They run on the nodes' network at the fixed IPs `172.20.0.253` and `172.20.0.254`, so they never take a node's IP:
+
+| Service | URL | Notes |
+|---|---|---|
+| Prometheus | http://localhost:9090 | **Status > Target health** lists one `besu` target per node, which should all be `UP` |
+| Grafana | http://localhost:3000 | Login `admin` / `admin`. Opens on the **Besu Full** dashboard |
+
+Use `--no-monitoring` to start the nodes alone. To publish the monitoring on other host ports, set `PROMETHEUS_PORT` and `GRAFANA_PORT`, e.g. `GRAFANA_PORT=3001 ./init-qbft.sh --resume`. The script saves them in `.env`, so later runs keep them. It stops before starting anything when one of these ports is already taken on the host. Networks started by an earlier version of this branch have monitoring containers named `prometheus` and `grafana`: remove them first with `docker rm -f prometheus grafana`.
+
+### Dashboards
+
+Grafana has two dashboards in the **Besu** folder, both reading the provisioned **Prometheus** datasource:
+
+- **Besu Full**, the home dashboard: [grafana.com dashboard 16455](https://grafana.com/grafana/dashboards/16455), published by Consensys and recommended by the Besu documentation. `init-qbft.sh` downloads it from the host each time it starts the monitoring, into `genesis-generator/grafana/dashboards-grafana-com/` (gitignored), pinned to revision 11 by `BESU_FULL_DASHBOARD_REVISION` in [init-qbft.sh](init-qbft.sh). The host downloads it, not the Grafana container, so a proxy certificate the host trusts also works. Without access to grafana.com Grafana uses the copy from a previous run, or opens on Besu QBFT network if it never downloaded one. Several of its rows stay empty on this network because they do not apply to it: snap and fast sync, Execution Engine, the layered transaction pool (the nodes use `tx-pool="sequenced"`), RocksDB (metrics not enabled) and host disk usage (needs a host metrics exporter).
+- **Besu QBFT network**: [genesis-generator/grafana/dashboards/besu-qbft.json](genesis-generator/grafana/dashboards/besu-qbft.json), a one-screen view for load tests: chain height, blocks per minute, transactions and gas per second, transaction pool, peers, JSON-RPC requests by method, JVM heap and scrape status, per node.
+
+To change **Besu QBFT network**, edit it in Grafana, then use **Export > Export as JSON**, overwrite `genesis-generator/grafana/dashboards/besu-qbft.json` with the exported file and commit it. Changes saved only in Grafana are not in the repository, and Grafana can overwrite them with the file when it provisions the dashboard again. To follow a newer revision of Besu Full, change `BESU_FULL_DASHBOARD_REVISION` and run `./init-qbft.sh --resume`.
+
+### How it fits together
+
+- Each node serves its metrics (`metrics-enabled`, `metrics-host="0.0.0.0"` in [genesis-generator/config.toml](genesis-generator/config.toml)) on port `9544 + N` of the Docker network. These ports are not published to the host: Prometheus reaches each node by its service name (`node-1:9545`, `node-2:9546`, ...).
+- The script writes `genesis-generator/prometheus/prometheus.generated.yml` (gitignored) with one scrape target per node, labelled `node="node-N"`, so it follows the number of nodes (at most 251). `--resume` rewrites it, and `docker-compose.generated.yaml`, from the existing node count.
+- The service definitions are in [genesis-generator/prometheus/docker-compose.yaml](genesis-generator/prometheus/docker-compose.yaml) and [genesis-generator/grafana/docker-compose.yaml](genesis-generator/grafana/docker-compose.yaml), and the datasource and dashboard providers in [genesis-generator/grafana/provisioning](genesis-generator/grafana/provisioning).
+- Metrics history and Grafana settings are kept in the `prometheus-data` and `grafana-data` Docker volumes across restarts. `docker compose -f docker-compose.generated.yaml down -v` deletes them.
+
+To check the targets from the command line (one `"health":"up"` per node):
+
+```sh
+curl -s http://localhost:9090/api/v1/targets | grep -o '"health":"[a-z]*"'
+```
+
+The node logs alone are shown in the terminal. To see the monitoring logs, run `docker logs qbft-prometheus` or `docker logs qbft-grafana`. To restart only the monitoring, for example after editing a dashboard file:
+
+```sh
+docker compose -f docker-compose.generated.yaml up -d --force-recreate prometheus grafana
+```
 
 ## Some JSON-RPC API endpoints
 ### Querying the accounts supported DSAs
@@ -136,7 +176,7 @@ Returns the full details of a block given its number. The second parameter `true
 
 Pressing **Ctrl+C** in the terminal where `init-qbft.sh` is running is the quickest way to stop the network.
 
-With `--terminals` (e.g. `./init-qbft.sh hyperledger/besu --terminals`), the script opens one terminal window per node (gnome-terminal, konsole, xfce4-terminal or xterm). Ctrl+C in a window stops only that node; to stop them all, run:
+With `--terminals` (e.g. `./init-qbft.sh hyperledger/besu --terminals`), the script opens one terminal window per node (gnome-terminal, konsole, xfce4-terminal or xterm), and runs Prometheus and Grafana in the background. Ctrl+C in a window stops only that node; to stop them all, with the monitoring, run:
 
 ```sh
 docker compose -f docker-compose.generated.yaml down
@@ -159,5 +199,5 @@ docker compose -f docker-compose.generated.yaml down
 Or, with the default four nodes:
 
 ```sh
-docker rm -f node-1 node-2 node-3 node-4
+docker rm -f node-1 node-2 node-3 node-4 qbft-prometheus qbft-grafana
 ```

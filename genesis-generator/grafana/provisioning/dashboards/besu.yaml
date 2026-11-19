@@ -1,0 +1,19 @@
+apiVersion: 1
+
+providers:
+  # Besu QBFT network: this repository's dashboard (dashboards/besu-qbft.json)
+  - name: besu
+    folder: Besu
+    type: file
+    disableDeletion: true
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+  # Besu Full: downloaded from grafana.com by init-qbft.sh before Grafana starts
+  - name: besu-grafana-com
+    folder: Besu
+    type: file
+    disableDeletion: true
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards-grafana-com
