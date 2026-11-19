@@ -161,3 +161,7 @@ Or, with the default four nodes:
 ```sh
 docker rm -f node-1 node-2 node-3 node-4
 ```
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE).
