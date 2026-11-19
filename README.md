@@ -63,6 +63,26 @@ With `SECP256K1-FALCON512` the script therefore disables discovery (`discovery-e
 
 On `SECP256R1` networks Besu logs `Missing PKEY_SECP256K1 field` when writing the discovery node record. This is harmless and does not affect consensus.
 
+### Account signature algorithms (`--accounts-dsas`)
+
+By default the nodes accept only transactions signed with `SECP256K1`. To accept other DSAs, pass `--accounts-dsas` with a comma-separated list:
+
+- `./init-qbft.sh hyperledger/besu:26.1.0-pqc --accounts-dsas=SECP256K1,MLDSA44` (new network)
+- `./init-qbft.sh --resume --accounts-dsas=SECP256K1` (existing network, see [Stopping the network](#stopping-the-network))
+
+The list is written as `accounts-supported-dsas` in every node's `config.toml`. It is independent of `--node-dsa`, which only sets the node keys. Each value must be one of:
+
+| `--accounts-dsas` value | Algorithm |
+|---|---|
+| `SECP256K1` | ECDSA on the secp256k1 curve |
+| `SECP256R1` | ECDSA on the secp256r1 curve |
+| `FALCON512` | Falcon-512 |
+| `MLDSA44`, `MLDSA65`, `MLDSA87` | ML-DSA-44, ML-DSA-65, ML-DSA-87 |
+| `SECP256K1-MLDSA44` | hybrid ECDSA ‖ ML-DSA-44 |
+| `SECP256K1-FALCON512` | hybrid ECDSA ‖ Falcon-512 |
+
+Without the flag, a new network accepts only `SECP256K1`, and `--resume` keeps each node's current list. With `--resume`, the flag rewrites only that line in the existing `node-*/config.toml` files, keeping the chain data, so a DSA can be removed from (or added back to) a running chain to simulate a change in the accepted algorithms. Stop the network first, since the new list applies when the nodes start. The active list can be checked with [`vnt_getAccountsSupportedDSAs`](#querying-the-accounts-supported-dsas).
+
 
 ## Verifying the network
 
@@ -115,6 +135,20 @@ Returns the full details of a block given its number. The second parameter `true
 ## Stopping the network
 
 Pressing **Ctrl+C** in the terminal where `init-qbft.sh` is running is the quickest way to stop the network.
+
+With `--terminals` (e.g. `./init-qbft.sh hyperledger/besu --terminals`), the script opens one terminal window per node (gnome-terminal, konsole, xfce4-terminal or xterm). Ctrl+C in a window stops only that node; to stop them all, run:
+
+```sh
+docker compose -f docker-compose.generated.yaml down
+```
+
+Without a graphical session or terminal emulator, it falls back to running every node in the current terminal.
+
+To start a stopped network again without regenerating it (same genesis, keys, node configs and chain data, including any manual edits to `node-*/config.toml`), use `--resume`, optionally with `--terminals`:
+
+```sh
+./init-qbft.sh --resume --terminals
+```
 
 To stop and remove the containers explicitly, whatever the number of nodes:
 

@@ -3,9 +3,17 @@
 
 usage() {
     echo ""
-    echo "Usage: $0 besu-image-name [--node-dsa=<DSA>]"
+    echo "Usage: $0 besu-image-name [--node-dsa=<DSA>] [--accounts-dsas=<DSA,...>] [--terminals]"
+    echo "       $0 --resume [--accounts-dsas=<DSA,...>] [--terminals]"
     echo "  --node-dsa   Node key algorithm: SECP256K1 (default), SECP256R1, SECP256K1-MLDSA44 or"
     echo "               SECP256K1-FALCON512 (experimental, see README)"
+    echo "  --accounts-dsas  Comma-separated DSAs accepted for account (transaction) signatures, among"
+    echo "               $ALL_ACCOUNTS_DSAS"
+    echo "               (default: SECP256K1, or the nodes' current value with --resume)"
+    echo "               Alias: --accounts-supported-dsas, as the option in config.toml"
+    echo "  --terminals  Open one terminal window per node instead of running them all in this one"
+    echo "  --resume     Start the network created by a previous run again, without regenerating"
+    echo "               the genesis, keys, node configs or chain data"
     echo "Example: $0 hyperledger/besu"
     echo "Example: $0 hyperledger/besu:26.1.0-pqc --node-dsa=SECP256K1-MLDSA44"
     echo "Example: $0 hyperledger/besu:26.1.0-pqc --node-dsa=SECP256K1-FALCON512"
@@ -14,23 +22,115 @@ usage() {
     echo ""
 }
 
+#Open a terminal window titled $1 running the command $2, with the first emulator found.
+#The window stays open after the command ends so its last output can still be read.
+open_terminal() {
+    local cmd="$2; echo; read -rp 'Press Enter to close this window'"
+    if command -v gnome-terminal > /dev/null; then gnome-terminal --title="$1" -- bash -c "$cmd"
+    elif command -v konsole > /dev/null; then konsole -p tabtitle="$1" -e bash -c "$cmd" &
+    elif command -v xfce4-terminal > /dev/null; then xfce4-terminal --title="$1" -x bash -c "$cmd" &
+    elif command -v xterm > /dev/null; then xterm -T "$1" -e bash -c "$cmd" &
+    elif command -v x-terminal-emulator > /dev/null; then x-terminal-emulator -e bash -c "$cmd" &
+    else return 1
+    fi
+}
+
 #Delete previous node containers (node-1, node-2, ...) whatever their number
 remove_containers() {
     docker rm -f genesis-generator $(docker ps -aq --filter "name=^node-[0-9]+$") > /dev/null 2>&1
 }
 
+#Validate the --accounts-dsas list and turn it into the TOML array of accounts-supported-dsas
+ACCOUNTS_DSAS_TOML=""
+parse_accounts_dsas() {
+    local dsa list=""
+    IFS=',' read -ra dsas <<< "${ACCOUNTS_DSAS// /}"
+    if [ ${#dsas[@]} -eq 0 ]; then
+        echo "--accounts-dsas needs at least one DSA"; exit 1
+    fi
+    for dsa in "${dsas[@]}"; do
+        if [[ ",$ALL_ACCOUNTS_DSAS," != *",$dsa,"* ]]; then
+            echo "Unsupported account DSA: $dsa (supported: $ALL_ACCOUNTS_DSAS)"; exit 1
+        fi
+        list+="${list:+,}\"$dsa\""
+    done
+    ACCOUNTS_DSAS_TOML="[$list]"
+}
+
+#Set accounts-supported-dsas in the given config.toml files, when --accounts-dsas is given
+set_accounts_dsas() {
+    [ -z "$ACCOUNTS_DSAS_TOML" ] && return
+    sed -i "s#^accounts-supported-dsas=.*#accounts-supported-dsas=$ACCOUNTS_DSAS_TOML#" "$@"
+}
+
+#Run the nodes as the current user, also for a later plain "docker compose up"
+set_user_env() {
+    export MY_UID=$(id -u)
+    export MY_GID=$(id -g)
+    printf 'MY_UID=%s\nMY_GID=%s\n' "$MY_UID" "$MY_GID" > .env
+}
+
+#Start the NODE_COUNT nodes of docker-compose.generated.yaml, all in this terminal or,
+#with --terminals, each in its own window. Existing containers are reused, not recreated.
+start_network() {
+    if [ "$TERMINALS" == "true" ] && { [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ]; }; then
+        #Create the network and containers here, then start each node attached in its own window:
+        #Ctrl+C in a window stops only that node
+        docker compose -f docker-compose.generated.yaml up --no-start
+        for ((node = 1; node <= NODE_COUNT; node++)); do
+            if ! open_terminal "node-$node" "docker start -a node-$node"; then
+                echo "No terminal emulator found, running all nodes in this terminal"
+                docker compose -f docker-compose.generated.yaml up
+                return
+            fi
+        done
+        echo "Nodes started in separate terminals. To stop them all:"
+        echo "  docker compose -f docker-compose.generated.yaml down"
+    else
+        [ "$TERMINALS" == "true" ] && echo "No graphical session found, running all nodes in this terminal"
+        docker compose -f docker-compose.generated.yaml up
+    fi
+}
+
 IMAGE=""
 NODE_DSA="SECP256K1"
+TERMINALS=false
+RESUME=false
+ACCOUNTS_DSAS=""
+ALL_ACCOUNTS_DSAS="SECP256K1,SECP256R1,FALCON512,MLDSA44,MLDSA65,MLDSA87,SECP256K1-MLDSA44,SECP256K1-FALCON512"
 while [ $# -gt 0 ]; do
     case "$1" in
         --node-dsa=*) NODE_DSA="${1#*=}" ;;
         --node-dsa) NODE_DSA="$2"; shift ;;
+        --terminals) TERMINALS=true ;;
+        --resume) RESUME=true ;;
+        --accounts-dsas=*|--accounts-supported-dsas=*) ACCOUNTS_DSAS="${1#*=}"; [ -z "$ACCOUNTS_DSAS" ] && ACCOUNTS_DSAS=" " ;;
+        --accounts-dsas|--accounts-supported-dsas) ACCOUNTS_DSAS="${2:- }"; shift ;;
         -h|--help) usage; exit 0 ;;
         -*) echo "Unknown option: $1"; usage; exit 1 ;;
         *) IMAGE="$1" ;;
     esac
     shift
 done
+
+#A new network accepts only SECP256K1 account signatures by default; --resume keeps the current list
+[ -z "$ACCOUNTS_DSAS" ] && [ "$RESUME" != "true" ] && ACCOUNTS_DSAS="SECP256K1"
+[ -n "$ACCOUNTS_DSAS" ] && parse_accounts_dsas
+
+if [ "$RESUME" == "true" ]; then
+    if [ ! -f docker-compose.generated.yaml ]; then
+        echo "No network to resume: run $0 besu-image-name first"
+        exit 1
+    fi
+    NODE_COUNT=$(grep -c '^  node-[0-9]*:$' docker-compose.generated.yaml)
+    echo "Resuming the existing $NODE_COUNT-node network"
+    #The node directories are mounted in the containers, so the new value applies on this start
+    set_accounts_dsas node-[0-9]*/config.toml
+    grep -h "^accounts-supported-dsas=" node-[0-9]*/config.toml | sort | uniq -c
+    set_user_env
+    start_network
+    exit
+fi
 
 #Expected node public key length (hex chars) and network elliptic curve for each supported DSA.
 #Besu refuses to start when the node DSA (or a hybrid's classical half) signs on a curve other
@@ -57,8 +157,7 @@ else
     fi
 
     # Fixes User Permission Issues
-    export MY_UID=$(id -u)
-    export MY_GID=$(id -g)
+    set_user_env
 
     #Genesis Generation
     cd genesis-generator
@@ -108,6 +207,7 @@ else
             -e "s#p2p-host=.*#p2p-host=\"172.20.0.$((count + 1))\"#" \
             -e "s#node-dsa=.*#node-dsa=\"$NODE_DSA\"#" \
             -e "s#metrics-port=.*#metrics-port=$((9544 + count))#" config.toml > ../node-$count/config.toml
+        set_accounts_dsas ../node-$count/config.toml
         #Set the image name in the node docker-compose.yaml
         sed -e "s#image:.*#image: $IMAGE#" \
             -e "s#container_name:.*#container_name: node-$count#" \
@@ -178,7 +278,7 @@ else
     remove_containers #To avoid errors, delete previous containers with the same name
 
     #Start QBFT Network
-    docker compose -f docker-compose.generated.yaml up
+    start_network
 
     # (cd ../prometheus && docker compose up -d)
     # (cd ../grafana && docker compose up -d)
