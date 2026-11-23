@@ -28,7 +28,8 @@ usage() {
     echo "(at most $MAX_NODES)."
     echo ""
     echo "       $0 --status | --stop | --logs [node-N|prometheus|grafana]"
-    echo "  --status     Show each container's state, the nodes' block height and peers, and the URLs"
+    echo "  --status     Show the node key and account signature algorithms, each container's state,"
+    echo "               the nodes' block height and peers, and the URLs"
     echo "  --stop       Stop and remove the network's containers, keeping the chain data:"
     echo "               --resume starts it again"
     echo "  --logs       Follow the logs of all the nodes, or of the given service"
@@ -279,10 +280,48 @@ rpc_number() {
     if [ -n "$hex" ]; then echo $((hex)); else echo "-"; fi
 }
 
+#Node key algorithm of node $1, from its config.toml
+node_dsa_of() {
+    local dsa
+    dsa=$(sed -n 's/^node-dsa *= *"\(.*\)".*/\1/p' "node-$1/config.toml" 2> /dev/null | tail -n 1)
+    echo "${dsa:-SECP256K1 (not set)}"
+}
+
+#Account signature algorithms of node $1: what the running node reports over JSON-RPC, else
+#accounts-supported-dsas in its config.toml
+accounts_dsas_of() {
+    local dsas=""
+    if [ "$(docker inspect -f '{{.State.Status}}' "node-$1" 2> /dev/null)" == "running" ] &&
+        [ "$(container_dir "node-$1")" == "$THIS_DIR" ]; then
+        dsas=$(curl -s --max-time 3 -H 'Content-Type: application/json' \
+            -d '{"jsonrpc":"2.0","method":"vnt_getAccountsSupportedDSAs","params":[],"id":1}' \
+            "http://localhost:$((8544 + $1))" | sed -n 's/.*"result" *: *\[\([^]]*\)\].*/\1/p')
+    fi
+    [ -z "$dsas" ] && dsas=$(sed -n 's/^accounts-supported-dsas *= *\[\(.*\)\].*/\1/p' \
+        "node-$1/config.toml" 2> /dev/null | tail -n 1)
+    dsas=$(echo "$dsas" | tr -d '" ' | sed 's/,/, /g')
+    echo "${dsas:-unknown}"
+}
+
+#Print "$1: value" when every node has the same value from function $2, else one line per node
+show_node_setting() {
+    local node values
+    values=$(for ((node = 1; node <= NODE_COUNT; node++)); do echo "node-$node $($2 "$node")"; done)
+    if [ "$(echo "$values" | cut -d' ' -f2- | sort -u | wc -l)" -eq 1 ]; then
+        echo "$1: $(echo "$values" | head -n 1 | cut -d' ' -f2-)"
+    else
+        echo "$1 (differs between nodes):"
+        echo "$values" | sed 's/^/  /'
+    fi
+}
+
 #--status: state of each container of this network, and the nodes' chain view over JSON-RPC
 show_status() {
     local node container state dir port block peers foreign=""
     echo "Network in $(pwd): $NODE_COUNT nodes"
+    show_node_setting "Node key algorithm" node_dsa_of
+    show_node_setting "Account signature algorithms" accounts_dsas_of
+    echo ""
     printf '%-16s %-10s %-9s %-6s %s\n' CONTAINER STATE BLOCK PEERS URL
     for container in $(network_containers); do
         state=$(docker inspect -f '{{.State.Status}}' "$container" 2> /dev/null)

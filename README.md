@@ -94,10 +94,13 @@ Once the network is running, check it from the directory where it was created, i
 ./init-qbft.sh --status
 ```
 
-It lists each container with its state and, for the running nodes, the block height and peer count reported over JSON-RPC, and the URLs on the host:
+It shows the network's node key algorithm (`--node-dsa`) and account signature algorithms (`--accounts-dsas`), then lists each container with its state and, for the running nodes, the block height and peer count reported over JSON-RPC, and the URLs on the host:
 
 ```
 Network in /home/user/besu-qbft: 4 nodes
+Node key algorithm: SECP256K1-MLDSA44
+Account signature algorithms: SECP256K1, SECP256K1-MLDSA44
+
 CONTAINER        STATE      BLOCK     PEERS  URL
 node-1           running    33        3      http://localhost:8545
 node-2           running    33        1      http://localhost:8546
@@ -107,7 +110,7 @@ qbft-prometheus  running    -         -      http://localhost:9090
 qbft-grafana     running    -         -      http://localhost:3000
 ```
 
-The `qbft-prometheus` and `qbft-grafana` rows appear only for a network started with `--monitoring`. The block height should rise every few seconds on every node. `absent` means the container does not exist (the network is stopped). `elsewhere` means a network created in **another directory**, such as another clone or copy of this repository, holds that container name now: every network made by this script uses the same container names, ports and subnet, so only one of them can run at a time. The directory owning it is printed below the table.
+The node key algorithm comes from `node-dsa` in each `node-N/config.toml`. The account signature algorithms are those a running node reports through `vnt_getAccountsSupportedDSAs` (see [Querying the accounts supported DSAs](#querying-the-accounts-supported-dsas)), else `accounts-supported-dsas` in its `config.toml`. When the nodes disagree, for example after editing one node's `config.toml`, each node's value is listed instead. The `qbft-prometheus` and `qbft-grafana` rows appear only for a network started with `--monitoring`. The block height should rise every few seconds on every node. `absent` means the container does not exist (the network is stopped). `elsewhere` means a network created in **another directory**, such as another clone or copy of this repository, holds that container name now: every network made by this script uses the same container names, ports and subnet, so only one of them can run at a time. The directory owning it is printed below the table.
 
 To follow the logs of all the nodes, or of one service (`node-N`, `prometheus` or `grafana`):
 
