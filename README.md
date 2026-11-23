@@ -14,22 +14,107 @@ The nodes expose their JSON-RPC endpoints on consecutive ports starting at 8545:
 
 The script streams the logs of all nodes directly in the terminal — no separate `docker logs` command needed.
 
+On Windows, read [Running on Windows](#running-on-windows) first.
 
+## Contents
+
+- [Prerequisites](#prerequisites)
+- [Quick start](#quick-start)
+- [Running on Windows](#running-on-windows)
+  - [Behind an HTTPS proxy](#behind-an-https-proxy)
+- [Usage](#usage)
+  - [Number of nodes](#number-of-nodes)
+  - [Node key algorithm (`--node-dsa`)](#node-key-algorithm---node-dsa)
+  - [Account signature algorithms (`--accounts-dsas`)](#account-signature-algorithms---accounts-dsas)
+- [Verifying the network](#verifying-the-network)
+- [Monitoring (Prometheus and Grafana)](#monitoring-prometheus-and-grafana)
+  - [Dashboards](#dashboards)
+  - [How it fits together](#how-it-fits-together)
+- [Some JSON-RPC API endpoints](#some-json-rpc-api-endpoints)
+  - [Querying the accounts supported DSAs](#querying-the-accounts-supported-dsas)
+  - [Querying Transactions and Blocks](#querying-transactions-and-blocks)
+- [Stopping the network](#stopping-the-network)
 
 
 ## Prerequisites
 
-- Docker with Docker Compose v2.20 or later (`docker compose`)
-- `Besu Image`
-- Only with `--monitoring`: `curl` and access to grafana.com, to download the Besu Full dashboard (optional, see [Monitoring](#monitoring-prometheus-and-grafana))
+- Docker with Docker Compose v2.20 or later (`docker compose`): Docker Engine on Linux, or Docker Desktop or Rancher Desktop on Windows and macOS
+- Bash: any Linux or macOS shell, or Git Bash on Windows
+- The **PQC Besu image**, e.g. `hyperledger/besu:26.1.0-pqc`. The node configs use the options `node-dsa` and `accounts-supported-dsas`, which only this custom Besu build has, so the stock `hyperledger/besu` image from Docker Hub does not work. The PQC image is not on Docker Hub: build it from the PQC Besu fork, or copy it from a teammate's machine (see [Quick start](#quick-start))
+- `curl`, to query the nodes. With `--monitoring`, also access to grafana.com, to download the Besu Full dashboard (optional, see [Monitoring](#monitoring-prometheus-and-grafana))
+
+
+## Quick start
+
+1. **Get the image.** Check that it is there:
+
+   ```sh
+   docker images hyperledger/besu
+   ```
+
+   To copy it from another machine that has it:
+
+   ```sh
+   docker save hyperledger/besu:26.1.0-pqc -o besu-pqc.tar   # on the machine that has it
+   docker load -i besu-pqc.tar                               # on yours
+   ```
+
+2. **Start a 4-node network** from the repository root. The terminal then shows the nodes' logs; leave it open:
+
+   ```sh
+   chmod +x init-qbft.sh
+   ./init-qbft.sh hyperledger/besu:26.1.0-pqc
+   ```
+
+   The first run takes about a minute: it generates the genesis and the node keys, then starts the nodes. A new block every 2 seconds appears in the logs as `Produced empty block #N` or `Imported empty block #N`.
+
+3. **Check it** from a second terminal, in the same directory:
+
+   ```sh
+   ./init-qbft.sh --status
+   ```
+
+   Every node should be `running`, with a block height that rises at each call. Any JSON-RPC client can now use http://localhost:8545 (node-1) to http://localhost:8548 (node-4), for example:
+
+   ```sh
+   curl -s -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' http://localhost:8545
+   ```
+
+4. **Stop it** with Ctrl+C in the first terminal, or `./init-qbft.sh --stop` from the second. The chain data is kept: `./init-qbft.sh --resume` starts the same network again, from the same block.
+
+Next steps:
+
+- Post-quantum node keys or account signatures: add [`--node-dsa`](#node-key-algorithm---node-dsa) or [`--accounts-dsas`](#account-signature-algorithms---accounts-dsas), e.g. `./init-qbft.sh hyperledger/besu:26.1.0-pqc --node-dsa=SECP256K1-MLDSA44 --accounts-dsas=SECP256K1,SECP256K1-MLDSA44`.
+- Dashboards: add `--monitoring` (or `./init-qbft.sh --resume --monitoring` on an existing network), then open Grafana at http://localhost:3000 (`admin` / `admin`). See [Monitoring](#monitoring-prometheus-and-grafana).
+- More or fewer nodes: see [Number of nodes](#number-of-nodes).
+
+Running `./init-qbft.sh <image>` again creates a **new** network: it deletes the `node-*` directories, chain data included. Use `--resume` to keep them.
+
+
+## Running on Windows
+
+The script is a Bash script and runs in **Git Bash** (installed with [Git for Windows](https://gitforwindows.org/)), with Docker Desktop or Rancher Desktop as the container engine. Run every command of this README in Git Bash, not in PowerShell or `cmd`.
+
+- **Start the container engine first.** When it is not running, every `docker` command fails with `failed to connect to the docker API at npipe:////./pipe/docker_engine`. Rancher Desktop takes about a minute to start; `docker info` succeeds once it is ready.
+- **Line endings.** Git for Windows usually converts text files to CRLF on checkout (`core.autocrlf=true`). Shell scripts with CRLF fail with errors such as `$'\r': command not found`, in Git Bash and also inside the Grafana container, which runs `genesis-generator/grafana/start.sh`. [.gitattributes](.gitattributes) keeps `*.sh` files LF on checkout. A clone made before that file existed keeps its CRLF copies until they are checked out again:
+
+  ```sh
+  rm init-qbft.sh init-gramine-qbft.sh genesis-generator/grafana/start.sh
+  git checkout -- init-qbft.sh init-gramine-qbft.sh genesis-generator/grafana/start.sh
+  ```
+
+- **Paths in your own `docker` commands.** Git Bash rewrites arguments that look like Unix paths, so `docker run -v myvolume:/data ...` receives a Windows path instead of `/data`. Prefix such commands with `MSYS_NO_PATHCONV=1`. `init-qbft.sh` itself is not affected.
+- **`--terminals`** needs a Linux graphical session: on Windows the script prints `No graphical session found` and runs every node in the current terminal. Use a second Git Bash window with `./init-qbft.sh --status` and `./init-qbft.sh --logs node-N` instead.
+- **One network at a time.** Networks created by this script use the same container names, ports and subnet. If you have two copies of this repository, for example a clone and a copy made by another project, only one of them can run; `./init-qbft.sh --status` shows `elsewhere` for containers owned by the other one.
+
+### Behind an HTTPS proxy
+
+Some corporate networks inspect HTTPS traffic with their own certificate authority. Windows trusts it, but Docker containers do not, so HTTPS downloads made *inside* a container fail with `x509: certificate signed by unknown authority`. This is why `init-qbft.sh` downloads the Besu Full dashboard on the host and hands it to Grafana, instead of letting Grafana download it. If the download fails on the host too, Grafana uses the copy from a previous run, or opens on the Besu QBFT network dashboard.
 
 
 ## Usage
 
-- `chmod +x init-qbft.sh`
-- You need to know the name of the besu image. Replace ***hyperledger/besu*** with your image name
-- `./init-qbft.sh hyperledger/besu`
-- To also start Prometheus and Grafana: `./init-qbft.sh hyperledger/besu --monitoring` (see [Monitoring](#monitoring-prometheus-and-grafana))
+The [Quick start](#quick-start) covers the basic run. `./init-qbft.sh --help` lists every option; the main ones are described below.
 
 ### Number of nodes
 
