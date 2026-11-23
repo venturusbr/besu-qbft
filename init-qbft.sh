@@ -3,8 +3,8 @@
 
 usage() {
     echo ""
-    echo "Usage: $0 besu-image-name [--node-dsa=<DSA>] [--accounts-dsas=<DSA,...>] [--terminals] [--no-monitoring]"
-    echo "       $0 --resume [--accounts-dsas=<DSA,...>] [--terminals] [--no-monitoring]"
+    echo "Usage: $0 besu-image-name [--node-dsa=<DSA>] [--accounts-dsas=<DSA,...>] [--terminals] [--monitoring]"
+    echo "       $0 --resume [--accounts-dsas=<DSA,...>] [--terminals] [--monitoring|--no-monitoring]"
     echo "  --node-dsa   Node key algorithm: SECP256K1 (default), SECP256R1, SECP256K1-MLDSA44 or"
     echo "               SECP256K1-FALCON512 (experimental, see README)"
     echo "  --accounts-dsas  Comma-separated DSAs accepted for account (transaction) signatures, among"
@@ -14,10 +14,13 @@ usage() {
     echo "  --terminals  Open one terminal window per node instead of running them all in this one"
     echo "  --resume     Start the network created by a previous run again, without regenerating"
     echo "               the genesis, keys, node configs or chain data"
-    echo "  --no-monitoring  Start the nodes without Prometheus and Grafana"
-    echo "Prometheus and Grafana are published on ports 9090 and 3000 of the host, or on"
-    echo "\$PROMETHEUS_PORT and \$GRAFANA_PORT when set (e.g. GRAFANA_PORT=3001 $0 --resume)."
+    echo "  --monitoring Also start Prometheus and Grafana (off by default). --resume keeps the"
+    echo "               network's current choice unless --monitoring or --no-monitoring is given"
+    echo "  --no-monitoring  Start the nodes without Prometheus and Grafana (the default)"
+    echo "With --monitoring, Prometheus and Grafana are published on ports 9090 and 3000 of the host, or on"
+    echo "\$PROMETHEUS_PORT and \$GRAFANA_PORT when set (e.g. GRAFANA_PORT=3001 $0 --resume --monitoring)."
     echo "Example: $0 hyperledger/besu"
+    echo "Example: $0 hyperledger/besu --monitoring"
     echo "Example: $0 hyperledger/besu:26.1.0-pqc --node-dsa=SECP256K1-MLDSA44"
     echo "Example: $0 hyperledger/besu:26.1.0-pqc --node-dsa=SECP256K1-FALCON512"
     echo "Example: $0 hyperledger/besu:26.1.0-pqc --node-dsa=SECP256R1"
@@ -109,7 +112,7 @@ check_monitoring_ports() {
         [ -n "$(docker ps -q --filter "name=^$container$")" ] && continue
         if port_in_use "$port"; then
             echo "Port $port, needed by ${container#qbft-}, is already in use on this host."
-            echo "Free it, choose another one with $var=<port> $0 ..., or use --no-monitoring"
+            echo "Free it, choose another one with $var=<port> $0 ..., or start without --monitoring"
             exit 1
         fi
     done
@@ -292,7 +295,7 @@ show_status() {
         esac
         if [ -z "$state" ]; then
             [[ "$container" == qbft-* ]] && ! grep -q '^  prometheus:$' docker-compose.generated.yaml &&
-                continue #started with --no-monitoring
+                continue #started without --monitoring
             state="absent"
         elif [ -n "$dir" ] && [ "$dir" != "$THIS_DIR" ]; then
             state="elsewhere"; foreign+="${foreign:+ }$container"
@@ -315,7 +318,7 @@ TERMINALS=false
 RESUME=false
 ACTION=""
 LOGS_SERVICE=""
-MONITORING=true
+MONITORING="" #true with --monitoring, false with --no-monitoring, else the default below
 #Monitoring host ports: from the environment, else from the previous run's .env, else the defaults
 env_file_value() { sed -n "s/^$1=//p" .env 2> /dev/null | tail -n 1; }
 PROMETHEUS_PORT=${PROMETHEUS_PORT:-$(env_file_value PROMETHEUS_PORT)}
@@ -333,6 +336,7 @@ while [ $# -gt 0 ]; do
         --node-dsa) NODE_DSA="$2"; shift ;;
         --terminals) TERMINALS=true ;;
         --resume) RESUME=true ;;
+        --monitoring) MONITORING=true ;;
         --no-monitoring) MONITORING=false ;;
         --status) ACTION=status ;;
         --stop) ACTION=stop ;;
@@ -377,6 +381,9 @@ if [ -n "$ACTION" ]; then
     exit
 fi
 
+#A new network has no monitoring unless --monitoring is given
+[ -z "$MONITORING" ] && [ "$RESUME" != "true" ] && MONITORING=false
+
 #A new network accepts only SECP256K1 account signatures by default; --resume keeps the current list
 [ -z "$ACCOUNTS_DSAS" ] && [ "$RESUME" != "true" ] && ACCOUNTS_DSAS="SECP256K1"
 [ -n "$ACCOUNTS_DSAS" ] && parse_accounts_dsas
@@ -389,11 +396,15 @@ if [ "$RESUME" == "true" ]; then
     NODE_COUNT=$(grep -c '^  node-[0-9]*:$' docker-compose.generated.yaml)
     echo "Resuming the existing $NODE_COUNT-node network"
     check_node_count "$NODE_COUNT"
+    #Keep the monitoring of the network unless --monitoring or --no-monitoring changes it
+    if [ -z "$MONITORING" ]; then
+        if grep -q '^  prometheus:$' docker-compose.generated.yaml; then MONITORING=true; else MONITORING=false; fi
+    fi
+    [ "$MONITORING" == "true" ] && echo "With Prometheus and Grafana (--no-monitoring to start without them)"
     #The node directories are mounted in the containers, so the new value applies on this start
     set_accounts_dsas node-[0-9]*/config.toml
     grep -h "^accounts-supported-dsas=" node-[0-9]*/config.toml | sort | uniq -c
-    #Both depend only on the node count (and --no-monitoring): rewriting them also adds the
-    #monitoring to networks created by older versions of this script
+    #Both depend only on the node count and the monitoring choice
     write_compose_file
     [ "$MONITORING" == "true" ] && write_prometheus_config
     set_user_env
