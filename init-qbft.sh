@@ -24,6 +24,13 @@ usage() {
     echo "The number of nodes is blockchain.nodes.count in genesis-generator/qbftConfig.json"
     echo "(at most $MAX_NODES)."
     echo ""
+    echo "       $0 --status | --stop | --logs [node-N|prometheus|grafana]"
+    echo "  --status     Show each container's state, the nodes' block height and peers, and the URLs"
+    echo "  --stop       Stop and remove the network's containers, keeping the chain data:"
+    echo "               --resume starts it again"
+    echo "  --logs       Follow the logs of all the nodes, or of the given service"
+    echo "These act on the network created in the current directory."
+    echo ""
 }
 
 #Open a terminal window titled $1 running the command $2, with the first emulator found.
@@ -231,10 +238,83 @@ start_network() {
     fi
 }
 
+#Host path of the directory whose docker-compose.generated.yaml created container $1, if any.
+#Separators and case are normalized, so Windows paths from Docker compare with this directory's.
+container_dir() {
+    container_dir_as_is "$1" | tr '\\' '/' | tr '[:upper:]' '[:lower:]'
+}
+container_dir_as_is() {
+    docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$1" 2> /dev/null
+}
+THIS_DIR=$( (pwd -W 2> /dev/null || pwd) | tr '\\' '/' | tr '[:upper:]' '[:lower:]')
+
+#This network's containers: node-1..node-NODE_COUNT, and the monitoring ones
+network_containers() {
+    local node
+    for ((node = 1; node <= NODE_COUNT; node++)); do echo "node-$node"; done
+    echo qbft-prometheus
+    echo qbft-grafana
+}
+
+#Containers with this network's names that another directory's network created: every network
+#made by this script uses the same container names, ports and subnet, and docker compose would
+#treat a copy of this directory with the same folder name as the same project
+foreign_containers() {
+    local container dir
+    for container in $(network_containers); do
+        dir=$(container_dir "$container")
+        [ -n "$dir" ] && [ "$dir" != "$THIS_DIR" ] && echo "$container $(container_dir_as_is "$container")"
+    done
+}
+
+#Result (a hex quantity) of JSON-RPC method $2 on host port $1, as a decimal number, or "-"
+rpc_number() {
+    local hex
+    hex=$(curl -s --max-time 3 -H 'Content-Type: application/json' \
+        -d "{\"jsonrpc\":\"2.0\",\"method\":\"$2\",\"params\":[],\"id\":1}" "http://localhost:$1" |
+        sed -n 's/.*"result" *: *"\(0x[0-9a-fA-F]*\)".*/\1/p')
+    if [ -n "$hex" ]; then echo $((hex)); else echo "-"; fi
+}
+
+#--status: state of each container of this network, and the nodes' chain view over JSON-RPC
+show_status() {
+    local node container state dir port block peers foreign=""
+    echo "Network in $(pwd): $NODE_COUNT nodes"
+    printf '%-16s %-10s %-9s %-6s %s\n' CONTAINER STATE BLOCK PEERS URL
+    for container in $(network_containers); do
+        state=$(docker inspect -f '{{.State.Status}}' "$container" 2> /dev/null)
+        dir=$(container_dir "$container")
+        block="-"; peers="-"
+        case "$container" in
+            node-*) node=${container#node-}; port=$((8544 + node)) ;;
+            qbft-prometheus) port=$PROMETHEUS_PORT ;;
+            qbft-grafana) port=$GRAFANA_PORT ;;
+        esac
+        if [ -z "$state" ]; then
+            [[ "$container" == qbft-* ]] && ! grep -q '^  prometheus:$' docker-compose.generated.yaml &&
+                continue #started with --no-monitoring
+            state="absent"
+        elif [ -n "$dir" ] && [ "$dir" != "$THIS_DIR" ]; then
+            state="elsewhere"; foreign+="${foreign:+ }$container"
+        elif [ "$state" == "running" ] && [[ "$container" == node-* ]]; then
+            block=$(rpc_number "$port" eth_blockNumber)
+            peers=$(rpc_number "$port" net_peerCount)
+        fi
+        printf '%-16s %-10s %-9s %-6s %s\n' "$container" "$state" "$block" "$peers" "http://localhost:$port"
+    done
+    if [ -n "$foreign" ]; then
+        echo ""
+        echo "\"elsewhere\": created by the network of another directory, which holds these names now:"
+        foreign_containers | sed 's/^/  /'
+    fi
+}
+
 IMAGE=""
 NODE_DSA="SECP256K1"
 TERMINALS=false
 RESUME=false
+ACTION=""
+LOGS_SERVICE=""
 MONITORING=true
 #Monitoring host ports: from the environment, else from the previous run's .env, else the defaults
 env_file_value() { sed -n "s/^$1=//p" .env 2> /dev/null | tail -n 1; }
@@ -254,6 +334,12 @@ while [ $# -gt 0 ]; do
         --terminals) TERMINALS=true ;;
         --resume) RESUME=true ;;
         --no-monitoring) MONITORING=false ;;
+        --status) ACTION=status ;;
+        --stop) ACTION=stop ;;
+        --logs=*) ACTION=logs; LOGS_SERVICE="${1#*=}" ;;
+        --logs)
+            ACTION=logs
+            if [ -n "$2" ] && [[ "$2" != -* ]]; then LOGS_SERVICE="$2"; shift; fi ;;
         --accounts-dsas=*|--accounts-supported-dsas=*) ACCOUNTS_DSAS="${1#*=}"; [ -z "$ACCOUNTS_DSAS" ] && ACCOUNTS_DSAS=" " ;;
         --accounts-dsas|--accounts-supported-dsas) ACCOUNTS_DSAS="${2:- }"; shift ;;
         -h|--help) usage; exit 0 ;;
@@ -262,6 +348,34 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
+
+#--status, --stop and --logs act on the network created in this directory
+if [ -n "$ACTION" ]; then
+    if [ ! -f docker-compose.generated.yaml ]; then
+        echo "No network in $(pwd): run $0 besu-image-name first"
+        exit 1
+    fi
+    NODE_COUNT=$(grep -c '^  node-[0-9]*:$' docker-compose.generated.yaml)
+    case "$ACTION" in
+        status) show_status ;;
+        stop)
+            if [ -n "$(foreign_containers)" ]; then
+                echo "Not stopping: these containers belong to the network of another directory:"
+                foreign_containers | sed 's/^/  /'
+                echo "Run $0 --stop in that directory instead"
+                exit 1
+            fi
+            docker compose -f docker-compose.generated.yaml down
+            echo "Network stopped. The chain data is kept in node-*/data: $0 --resume starts it again"
+            ;;
+        logs)
+            [ -n "$(foreign_containers)" ] &&
+                echo "Warning: some containers belong to the network of another directory (see --status)"
+            docker compose -f docker-compose.generated.yaml logs -f --tail 100 $LOGS_SERVICE
+            ;;
+    esac
+    exit
+fi
 
 #A new network accepts only SECP256K1 account signatures by default; --resume keeps the current list
 [ -z "$ACCOUNTS_DSAS" ] && [ "$RESUME" != "true" ] && ACCOUNTS_DSAS="SECP256K1"

@@ -87,7 +87,35 @@ Without the flag, a new network accepts only `SECP256K1`, and `--resume` keeps e
 
 ## Verifying the network
 
-Once the network is running, confirm all nodes are up and their RPC ports are published to the host:
+Once the network is running, check it from the directory where it was created, in another terminal:
+
+```sh
+./init-qbft.sh --status
+```
+
+It lists each container with its state and, for the running nodes, the block height and peer count reported over JSON-RPC, and the URLs on the host:
+
+```
+Network in /home/user/besu-qbft: 4 nodes
+CONTAINER        STATE      BLOCK     PEERS  URL
+node-1           running    33        3      http://localhost:8545
+node-2           running    33        1      http://localhost:8546
+node-3           running    33        1      http://localhost:8547
+node-4           running    33        1      http://localhost:8548
+qbft-prometheus  running    -         -      http://localhost:9090
+qbft-grafana     running    -         -      http://localhost:3000
+```
+
+The block height should rise every few seconds on every node. `absent` means the container does not exist (the network is stopped). `elsewhere` means a network created in **another directory**, such as another clone or copy of this repository, holds that container name now: every network made by this script uses the same container names, ports and subnet, so only one of them can run at a time. The directory owning it is printed below the table.
+
+To follow the logs of all the nodes, or of one service (`node-N`, `prometheus` or `grafana`):
+
+```sh
+./init-qbft.sh --logs
+./init-qbft.sh --logs node-2
+```
+
+The same check with Docker alone: confirm all nodes are up and their RPC ports are published to the host:
 
 ```sh
 docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
@@ -176,11 +204,15 @@ Returns the full details of a block given its number. The second parameter `true
 
 Pressing **Ctrl+C** in the terminal where `init-qbft.sh` is running is the quickest way to stop the network.
 
-With `--terminals` (e.g. `./init-qbft.sh hyperledger/besu --terminals`), the script opens one terminal window per node (gnome-terminal, konsole, xfce4-terminal or xterm), and runs Prometheus and Grafana in the background. Ctrl+C in a window stops only that node; to stop them all, with the monitoring, run:
+From any other terminal, in the directory where the network was created, this stops and removes all its containers, with the monitoring, whatever the number of nodes:
 
 ```sh
-docker compose -f docker-compose.generated.yaml down
+./init-qbft.sh --stop
 ```
+
+The chain data in `node-*/data` and the Prometheus and Grafana volumes are kept. If the containers belong to a network created in another directory (see `elsewhere` in `--status`), `--stop` leaves them running and names that directory: run it there.
+
+With `--terminals` (e.g. `./init-qbft.sh hyperledger/besu --terminals`), the script opens one terminal window per node (gnome-terminal, konsole, xfce4-terminal or xterm), and runs Prometheus and Grafana in the background. Ctrl+C in a window stops only that node; `./init-qbft.sh --stop` stops them all.
 
 Without a graphical session or terminal emulator, it falls back to running every node in the current terminal.
 
@@ -190,7 +222,7 @@ To start a stopped network again without regenerating it (same genesis, keys, no
 ./init-qbft.sh --resume --terminals
 ```
 
-To stop and remove the containers explicitly, whatever the number of nodes:
+Without the script, `--stop` is the same as the following command, except for the check of the directory that owns the containers:
 
 ```sh
 docker compose -f docker-compose.generated.yaml down
