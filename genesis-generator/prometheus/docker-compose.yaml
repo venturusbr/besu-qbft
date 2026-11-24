@@ -1,12 +1,16 @@
-version: '3.7'
+# Prometheus service of the network's compose file: init-qbft.sh adds it to
+# docker-compose.generated.yaml (through extends) on the nodes' network and writes
+# prometheus.generated.yml with one scrape target per node.
 services:
   prometheus:
-    image: prom/prometheus:latest
-    user: "${MY_UID}:${MY_GID}"
-    network_mode: host
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    image: prom/prometheus:v3.5.0
+    container_name: qbft-prometheus
     ports:
-      - "9090:9090"
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./prometheus.generated.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
     command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d

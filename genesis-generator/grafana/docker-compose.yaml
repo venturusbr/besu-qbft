@@ -1,13 +1,20 @@
-version: "3"
-
+# Grafana service of the network's compose file: init-qbft.sh adds it to
+# docker-compose.generated.yaml (through extends) on the nodes' network.
+# The Prometheus datasource and the dashboards are provisioned from this folder, including the
+# Besu Full dashboard that init-qbft.sh downloads into dashboards-grafana-com/ (gitignored).
 services:
   grafana:
-    container_name: grafana
-    user: "${MY_UID}:${MY_GID}"
-    network_mode: host
-    image: grafana/grafana:latest
-    ports: ["3000:3000"]
+    image: grafana/grafana:12.1.1
+    container_name: qbft-grafana
+    entrypoint: ["/bin/sh", "/qbft/start.sh"]
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
     volumes:
+      - ./start.sh:/qbft/start.sh:ro
+      - ./provisioning:/etc/grafana/provisioning:ro
+      - ./dashboards:/var/lib/grafana/dashboards:ro
+      - ./dashboards-grafana-com:/var/lib/grafana/dashboards-grafana-com:ro
       - grafana-data:/var/lib/grafana
-volumes:
-  grafana-data:

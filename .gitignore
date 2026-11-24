@@ -1,10 +1,13 @@
 .vscode/
 node-*/
-prometheus/
-grafana/
+# Root folders created by older versions of init-qbft.sh
+/prometheus/
+/grafana/
 genesis-generator/*.csv
 genesis-generator/networkFiles/
 data/*
 genesis-generator/qbftConfig.generated.json
 docker-compose.generated.yaml
 .env
+/genesis-generator/prometheus/prometheus.generated.yml
+/genesis-generator/grafana/dashboards-grafana-com/
