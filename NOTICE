@@ -1,0 +1,8 @@
+besu-qbft
+Copyright 2024-2026 Venturus
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The network it creates runs Hyperledger Besu (https://github.com/hyperledger/besu) or its fork
+besu-pqc-ppi (https://github.com/venturusbr/besu-pqc-ppi), both licensed under the Apache License,
+Version 2.0. The genesis allocates Besu's node permissioning (ingress) contract bytecode.
